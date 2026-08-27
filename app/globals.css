@@ -3,7 +3,11 @@
 @tailwind utilities;
 
 body {
-  background-color: #F4F5F6;
+  background-color: #0B0F14;
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(52, 195, 232, 0.08), transparent 40%),
+    radial-gradient(circle at 85% 100%, rgba(240, 167, 63, 0.06), transparent 40%);
+  background-attachment: fixed;
 }
 
 ::-webkit-scrollbar {
@@ -11,6 +15,10 @@ body {
   width: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background-color: #C7CDD3;
+  background-color: #26333F;
   border-radius: 4px;
+}
+
+select {
+  color-scheme: dark;
 }
