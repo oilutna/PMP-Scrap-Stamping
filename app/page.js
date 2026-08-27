@@ -202,7 +202,7 @@ function DailyAnalysis(props) {
       <TopCauseCards causes={dailyReasons.slice(0, 3)} actions={actions} changeStatus={changeStatus} />
     </Panel>
     <Panel title="Registro de contramedidas" subtitle="Historial compartido en Google Sheets" action={<span className="flex items-center gap-1.5 text-xs text-mute"><RefreshCw size={12} className={actionsStatus === 'loading' ? 'animate-spin' : ''} />{actions.length} registros</span>}>
-      {actionsStatus === 'error' && <p className="rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber">Para activar el registro, cambia la cuenta de servicio del Google Sheet de Lector a Editor.</p>}
+      {actionsStatus === 'error' && <p className="rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber">{formError || 'No se pudo cargar el registro de contramedidas.'}</p>}
       {actionsStatus === 'loading' ? <p className="py-8 text-center text-sm text-mute">Cargando historial…</p> : <ActionTable actions={actions} changeStatus={changeStatus} />}
     </Panel>
     {showForm && <ActionForm form={form} setForm={setForm} departments={byDept.map((d) => d.name)} causes={dailyReasons.map((r) => r.name)} onClose={() => { setShowForm(false); setFormError(''); }} onSubmit={saveAction} error={formError} saving={saving} />}
