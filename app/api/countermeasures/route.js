@@ -14,8 +14,8 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    if (!body.department || !body.problem || !body.action || !body.owner) {
-      return NextResponse.json({ error: 'Departamento, problema, contramedida y responsable son obligatorios.' }, { status: 400 });
+    if (!body.department || !body.cause || !body.problem || !body.action || !body.owner) {
+      return NextResponse.json({ error: 'Departamento, causa, problema, contramedida y responsable son obligatorios.' }, { status: 400 });
     }
     return NextResponse.json({ data: await addCountermeasure(body) }, { status: 201 });
   } catch (error) {

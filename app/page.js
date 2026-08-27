@@ -13,7 +13,7 @@ import {
 
 const COLORS = ['#34C3E8', '#F0A73F', '#9B7EF0', '#34D399', '#F2555A'];
 const EMPTY_FILTERS = { week: 'all', shift: 'all', area: 'all', depto: 'all', model: 'all' };
-const EMPTY_ACTION = { scrapDate: '', department: '', problem: '', action: '', owner: '', dueDate: '', status: 'Abierta', notes: '' };
+const EMPTY_ACTION = { scrapDate: '', department: '', cause: '', problem: '', action: '', owner: '', dueDate: '', status: 'Abierta', notes: '' };
 const STATUS_STYLE = {
   Abierta: 'border-coral/30 bg-coral/10 text-coral',
   'En proceso': 'border-amber/30 bg-amber/10 text-amber',
@@ -32,6 +32,15 @@ function groupSum(rows, keyFn) {
   });
   return [...map.entries()].map(([name, value]) => ({ name, ...value }));
 }
+function applyFilters(rows, filters) {
+  return rows.filter((r) =>
+    (filters.week === 'all' || r.week === filters.week) &&
+    (filters.shift === 'all' || r.shift === filters.shift) &&
+    (filters.area === 'all' || r.area === filters.area) &&
+    (filters.depto === 'all' || r.depto_responsible === filters.depto) &&
+    (filters.model === 'all' || r.model === filters.model)
+  );
+}
 function getDate(row) { return row.date || row.fecha || row.scrap_date || row.fecha_scrap || row.day || 'Sin fecha'; }
 function shortDate(value) {
   if (!value || value === 'Sin fecha') return value || '—';
@@ -45,7 +54,8 @@ export default function Home() {
   const [status, setStatus] = useState('loading');
   const [actionsStatus, setActionsStatus] = useState('idle');
   const [errorMsg, setErrorMsg] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [overviewFilters, setOverviewFilters] = useState(EMPTY_FILTERS);
+  const [dailyFilters, setDailyFilters] = useState(EMPTY_FILTERS);
   const [tab, setTab] = useState('overview');
   const [dailyMode, setDailyMode] = useState('date');
   const [showForm, setShowForm] = useState(false);
@@ -74,27 +84,27 @@ export default function Home() {
     const uniq = (field) => [...new Set(rows.map((r) => r[field]).filter(Boolean))].sort();
     return { week: uniq('week').sort(sortWeeks), shift: uniq('shift'), area: uniq('area'), depto: uniq('depto_responsible'), model: uniq('model') };
   }, [rows]);
-  const filtered = useMemo(() => rows.filter((r) =>
-    (filters.week === 'all' || r.week === filters.week) &&
-    (filters.shift === 'all' || r.shift === filters.shift) &&
-    (filters.area === 'all' || r.area === filters.area) &&
-    (filters.depto === 'all' || r.depto_responsible === filters.depto) &&
-    (filters.model === 'all' || r.model === filters.model)
-  ), [rows, filters]);
+  const overviewFiltered = useMemo(() => applyFilters(rows, overviewFilters), [rows, overviewFilters]);
+  const dailyFiltered = useMemo(() => applyFilters(rows, dailyFilters), [rows, dailyFilters]);
+  const currentFilters = tab === 'overview' ? overviewFilters : dailyFilters;
+  const setCurrentFilters = tab === 'overview' ? setOverviewFilters : setDailyFilters;
+  const currentFiltered = tab === 'overview' ? overviewFiltered : dailyFiltered;
 
-  const totalCost = filtered.reduce((sum, r) => sum + r.total_cost_num, 0);
-  const totalQty = filtered.reduce((sum, r) => sum + r.quantity_num, 0);
-  const byShift = useMemo(() => groupSum(filtered, (r) => r.shift).sort((a, b) => a.name.localeCompare(b.name)), [filtered]);
-  const byDept = useMemo(() => groupSum(filtered, (r) => r.depto_responsible).sort((a, b) => b.qty - a.qty), [filtered]);
-  const byArea = useMemo(() => groupSum(filtered, (r) => r.area).sort((a, b) => b.cost - a.cost), [filtered]);
-  const byModel = useMemo(() => groupSum(filtered, (r) => r.model).sort((a, b) => b.qty - a.qty), [filtered]);
-  const byReason = useMemo(() => groupSum(filtered, (r) => r.reason).sort((a, b) => b.cost - a.cost).slice(0, 10), [filtered]);
-  const weeklyTrend = useMemo(() => groupSum(filtered, (r) => r.week).sort((a, b) => sortWeeks(a.name, b.name)), [filtered]);
-  const dailyPivot = useMemo(() => groupSum(filtered, (r) => dailyMode === 'date' ? getDate(r) : r.depto_responsible).sort((a, b) => dailyMode === 'date' ? String(a.name).localeCompare(String(b.name)) : b.cost - a.cost), [filtered, dailyMode]);
+  const totalCost = overviewFiltered.reduce((sum, r) => sum + r.total_cost_num, 0);
+  const totalQty = overviewFiltered.reduce((sum, r) => sum + r.quantity_num, 0);
+  const byShift = useMemo(() => groupSum(overviewFiltered, (r) => r.shift).sort((a, b) => a.name.localeCompare(b.name)), [overviewFiltered]);
+  const byDept = useMemo(() => groupSum(overviewFiltered, (r) => r.depto_responsible).sort((a, b) => b.qty - a.qty), [overviewFiltered]);
+  const byArea = useMemo(() => groupSum(overviewFiltered, (r) => r.area).sort((a, b) => b.cost - a.cost), [overviewFiltered]);
+  const byModel = useMemo(() => groupSum(overviewFiltered, (r) => r.model).sort((a, b) => b.qty - a.qty), [overviewFiltered]);
+  const byReason = useMemo(() => groupSum(overviewFiltered, (r) => r.reason).sort((a, b) => b.cost - a.cost).slice(0, 10), [overviewFiltered]);
+  const weeklyTrend = useMemo(() => groupSum(overviewFiltered, (r) => r.week).sort((a, b) => sortWeeks(a.name, b.name)), [overviewFiltered]);
+  const dailyByDept = useMemo(() => groupSum(dailyFiltered, (r) => r.depto_responsible).sort((a, b) => b.qty - a.qty), [dailyFiltered]);
+  const dailyReasons = useMemo(() => groupSum(dailyFiltered, (r) => r.reason).sort((a, b) => b.cost - a.cost).slice(0, 10), [dailyFiltered]);
+  const dailyPivot = useMemo(() => groupSum(dailyFiltered, (r) => dailyMode === 'date' ? getDate(r) : r.depto_responsible).sort((a, b) => dailyMode === 'date' ? String(a.name).localeCompare(String(b.name)) : b.cost - a.cost), [dailyFiltered, dailyMode]);
   const openActions = actions.filter((item) => item.status !== 'Cerrada').length;
   const closedActions = actions.filter((item) => item.status === 'Cerrada').length;
-  const actionCoverage = byDept.length ? Math.round((new Set(actions.map((a) => a.department)).size / byDept.length) * 100) : 0;
-  const activeFilterCount = Object.values(filters).filter((v) => v !== 'all').length;
+  const actionCoverage = dailyByDept.length ? Math.round((new Set(actions.map((a) => a.department)).size / dailyByDept.length) * 100) : 0;
+  const activeFilterCount = Object.values(currentFilters).filter((v) => v !== 'all').length;
 
   async function saveAction(event) {
     event.preventDefault(); setSaving(true); setFormError('');
@@ -129,17 +139,17 @@ export default function Home() {
       {status === 'error' && <div className="rounded-xl border border-coral/35 bg-coral/10 p-4 text-sm text-coral">No se pudieron cargar los datos: {errorMsg}</div>}
       {status === 'ready' && <>
         <div className="animate-enter mb-5 flex flex-col justify-between gap-3 rounded-xl border border-line/70 bg-panel/65 p-3 lg:flex-row lg:items-center">
-          <div className="flex items-center gap-2 text-xs text-mute"><Layers3 size={15} className="text-cyan" /><span>{filtered.length.toLocaleString('en-US')} registros visibles</span>{activeFilterCount > 0 && <button onClick={() => setFilters(EMPTY_FILTERS)} className="ml-2 text-coral hover:text-white">Limpiar {activeFilterCount}</button>}</div>
+          <div className="flex items-center gap-2 text-xs text-mute"><Layers3 size={15} className="text-cyan" /><span>{currentFiltered.length.toLocaleString('en-US')} registros visibles en esta pestaña</span>{activeFilterCount > 0 && <button onClick={() => setCurrentFilters(EMPTY_FILTERS)} className="ml-2 text-coral hover:text-white">Limpiar {activeFilterCount}</button>}</div>
           <div className="flex flex-wrap gap-2">
-            <Filter value={filters.week} options={options.week} onChange={(v) => setFilters((f) => ({ ...f, week: v }))} placeholder="Todas las semanas" format={(v) => `Semana ${v}`} />
-            <Filter value={filters.shift} options={options.shift} onChange={(v) => setFilters((f) => ({ ...f, shift: v }))} placeholder="Todos los turnos" format={(v) => `Turno ${v}`} />
-            <Filter value={filters.area} options={options.area} onChange={(v) => setFilters((f) => ({ ...f, area: v }))} placeholder="Todas las áreas" />
-            <Filter value={filters.depto} options={options.depto} onChange={(v) => setFilters((f) => ({ ...f, depto: v }))} placeholder="Todos los deptos" />
-            <Filter value={filters.model} options={options.model} onChange={(v) => setFilters((f) => ({ ...f, model: v }))} placeholder="Todos los modelos" />
+            <Filter value={currentFilters.week} options={options.week} onChange={(v) => setCurrentFilters((f) => ({ ...f, week: v }))} placeholder="Todas las semanas" format={(v) => `Semana ${v}`} />
+            <Filter value={currentFilters.shift} options={options.shift} onChange={(v) => setCurrentFilters((f) => ({ ...f, shift: v }))} placeholder="Todos los turnos" format={(v) => `Turno ${v}`} />
+            <Filter value={currentFilters.area} options={options.area} onChange={(v) => setCurrentFilters((f) => ({ ...f, area: v }))} placeholder="Todas las áreas" />
+            <Filter value={currentFilters.depto} options={options.depto} onChange={(v) => setCurrentFilters((f) => ({ ...f, depto: v }))} placeholder="Todos los deptos" />
+            <Filter value={currentFilters.model} options={options.model} onChange={(v) => setCurrentFilters((f) => ({ ...f, model: v }))} placeholder="Todos los modelos" />
           </div>
         </div>
         {tab === 'overview' ? <Overview totalCost={totalCost} totalQty={totalQty} byShift={byShift} byDept={byDept} byArea={byArea} byModel={byModel} byReason={byReason} weeklyTrend={weeklyTrend} /> :
-          <DailyAnalysis dailyMode={dailyMode} setDailyMode={setDailyMode} dailyPivot={dailyPivot} byDept={byDept} actions={actions} actionsStatus={actionsStatus} openActions={openActions} closedActions={closedActions} actionCoverage={actionCoverage} showForm={showForm} setShowForm={setShowForm} form={form} setForm={setForm} formError={formError} saving={saving} saveAction={saveAction} changeStatus={changeStatus} />}
+          <DailyAnalysis dailyMode={dailyMode} setDailyMode={setDailyMode} dailyPivot={dailyPivot} byDept={dailyByDept} dailyReasons={dailyReasons} actions={actions} actionsStatus={actionsStatus} openActions={openActions} closedActions={closedActions} actionCoverage={actionCoverage} showForm={showForm} setShowForm={setShowForm} form={form} setForm={setForm} formError={formError} saving={saving} saveAction={saveAction} changeStatus={changeStatus} />}
       </>}
     </main>
   );
@@ -167,7 +177,7 @@ function Overview({ totalCost, totalQty, byShift, byDept, byArea, byModel, byRea
 }
 
 function DailyAnalysis(props) {
-  const { dailyMode, setDailyMode, dailyPivot, byDept, actions, actionsStatus, openActions, closedActions, actionCoverage, showForm, setShowForm, form, setForm, formError, saving, saveAction, changeStatus } = props;
+  const { dailyMode, setDailyMode, dailyPivot, byDept, dailyReasons, actions, actionsStatus, openActions, closedActions, actionCoverage, showForm, setShowForm, form, setForm, formError, saving, saveAction, changeStatus } = props;
   return <section className="animate-rise">
     <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
       <div><h2 className="text-xl font-bold text-ink">Análisis diario y contramedidas</h2><p className="mt-1 text-sm text-mute">Pivotea el impacto, asigna responsables y conserva el historial departamental.</p></div>
@@ -185,11 +195,17 @@ function DailyAnalysis(props) {
       </Panel>
       <Panel title="Matriz departamental" subtitle="Prioridad para plan de acción"><DepartmentMatrix rows={byDept} actions={actions} /></Panel>
     </div>
+    <Panel title="Top 10 causas del análisis diario" subtitle="Causas ordenadas por impacto económico con los filtros exclusivos de esta pestaña" className="mb-5">
+      <Chart type="horizontal" data={dailyReasons} dataKey="cost" height={350} />
+    </Panel>
+    <Panel title="Control de las 3 causas principales" subtitle="Issue, responsable y seguimiento individual de cada contramedida" className="mb-5">
+      <TopCauseCards causes={dailyReasons.slice(0, 3)} actions={actions} changeStatus={changeStatus} />
+    </Panel>
     <Panel title="Registro de contramedidas" subtitle="Historial compartido en Google Sheets" action={<span className="flex items-center gap-1.5 text-xs text-mute"><RefreshCw size={12} className={actionsStatus === 'loading' ? 'animate-spin' : ''} />{actions.length} registros</span>}>
       {actionsStatus === 'error' && <p className="rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber">Para activar el registro, cambia la cuenta de servicio del Google Sheet de Lector a Editor.</p>}
       {actionsStatus === 'loading' ? <p className="py-8 text-center text-sm text-mute">Cargando historial…</p> : <ActionTable actions={actions} changeStatus={changeStatus} />}
     </Panel>
-    {showForm && <ActionForm form={form} setForm={setForm} departments={byDept.map((d) => d.name)} onClose={() => { setShowForm(false); setFormError(''); }} onSubmit={saveAction} error={formError} saving={saving} />}
+    {showForm && <ActionForm form={form} setForm={setForm} departments={byDept.map((d) => d.name)} causes={dailyReasons.map((r) => r.name)} onClose={() => { setShowForm(false); setFormError(''); }} onSubmit={saveAction} error={formError} saving={saving} />}
   </section>;
 }
 
@@ -210,11 +226,15 @@ function Chart({ type, data, dataKey, height = 280, formatName }) {
 function Donut({ data, total }) { return <div className="flex items-center gap-5"><div className="relative h-52 w-52 shrink-0"><ResponsiveContainer><PieChart><Pie data={data} dataKey="cost" innerRadius={62} outerRadius={88} paddingAngle={3} animationDuration={900}>{data.map((item, i) => <Cell key={item.name} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => money(v)} contentStyle={{ background: '#17222E', border: '1px solid #243241', borderRadius: 10 }} /></PieChart></ResponsiveContainer><div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><p className="text-[10px] uppercase text-mute">Total</p><p className="text-sm font-bold text-ink">{money(total)}</p></div></div></div><div className="min-w-0 space-y-3">{data.map((item, i) => <div key={item.name} className="flex items-center gap-2 text-xs"><span className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} /><div><p className="font-semibold text-ink">{item.name}</p><p className="text-mute">{money(item.cost)}</p></div></div>)}</div></div>; }
 function Rank({ rows }) { const max = Math.max(...rows.map((r) => r.qty), 1); return <div className="space-y-4">{rows.map((row, i) => <div key={row.name}><div className="mb-1.5 flex items-center gap-3 text-sm"><span className="grid h-6 w-6 place-items-center rounded-md bg-panel2 font-mono text-[10px] text-mute">0{i + 1}</span><span className="min-w-0 flex-1 truncate font-medium text-ink">{row.name}</span><span className="font-mono font-bold text-ink">{row.qty.toLocaleString()}</span></div><div className="ml-9 h-1.5 overflow-hidden rounded-full bg-void"><div className="h-full rounded-full bg-gradient-to-r from-cyan to-violet transition-all duration-700" style={{ width: `${Math.max(5, row.qty / max * 100)}%` }} /></div></div>)}</div>; }
 function DepartmentMatrix({ rows, actions }) { return <div className="max-h-[280px] space-y-2 overflow-auto pr-1">{rows.slice(0, 8).map((row, i) => { const count = actions.filter((a) => a.department === row.name && a.status !== 'Cerrada').length; return <div key={row.name} className="flex items-center gap-3 rounded-lg border border-line/70 bg-void/35 p-3"><span className={`h-2 w-2 rounded-full ${i < 2 ? 'bg-coral' : i < 5 ? 'bg-amber' : 'bg-teal'}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-ink">{row.name}</p><p className="text-[11px] text-mute">{row.qty.toLocaleString()} pzas · {money(row.cost)}</p></div><span className="rounded-full border border-line px-2 py-1 text-[10px] text-mute">{count} abiertas</span></div>; })}</div>; }
-function ActionTable({ actions, changeStatus }) { if (!actions.length) return <div className="py-10 text-center"><ClipboardCheck className="mx-auto mb-2 text-mute" /><p className="text-sm text-mute">Aún no hay contramedidas registradas.</p></div>; return <div className="overflow-x-auto"><table className="w-full min-w-[950px] text-left text-xs"><thead className="border-b border-line font-mono uppercase tracking-wide text-mute"><tr><th className="pb-3">ID / fecha</th><th className="pb-3">Departamento</th><th className="pb-3">Problema y contramedida</th><th className="pb-3">Responsable</th><th className="pb-3">Compromiso</th><th className="pb-3">Estatus</th></tr></thead><tbody className="divide-y divide-line/60">{actions.map((item) => <tr key={item.id} className="group hover:bg-white/[.018]"><td className="py-3 pr-4"><p className="font-mono text-cyan">{item.id}</p><p className="mt-1 text-mute">{shortDate(item.scrapDate || item.createdAt)}</p></td><td className="py-3 pr-4 font-semibold text-ink">{item.department}</td><td className="max-w-md py-3 pr-5"><p className="font-medium text-ink">{item.problem}</p><p className="mt-1 line-clamp-2 text-mute">{item.action}</p></td><td className="py-3 pr-4 text-ink">{item.owner}</td><td className="py-3 pr-4 text-mute">{shortDate(item.dueDate)}</td><td className="py-3"><select value={item.status} onChange={(e) => changeStatus(item, e.target.value)} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold outline-none ${STATUS_STYLE[item.status] || STATUS_STYLE.Abierta}`}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></td></tr>)}</tbody></table></div>; }
+function TopCauseCards({ causes, actions, changeStatus }) {
+  if (!causes.length) return <p className="py-8 text-center text-sm text-mute">Sin causas para los filtros seleccionados.</p>;
+  return <div className="grid gap-3 lg:grid-cols-3">{causes.map((cause, index) => { const linked = actions.filter((item) => item.cause === cause.name); return <div key={cause.name} className="rounded-xl border border-line bg-void/35 p-4"><div className="mb-3 flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-coral/10 font-mono text-xs font-bold text-coral">0{index + 1}</span><div className="min-w-0"><p className="line-clamp-2 text-sm font-bold text-ink">{cause.name}</p><p className="mt-1 text-[11px] text-mute">{money(cause.cost)} · {cause.qty.toLocaleString()} pzas</p></div></div>{linked.length ? <div className="space-y-2">{linked.map((item) => <div key={item.id} className="rounded-lg border border-line/70 bg-panel/60 p-3"><p className="text-[10px] font-mono uppercase text-mute">Issue</p><p className="mt-1 line-clamp-2 text-xs font-semibold text-ink">{item.problem}</p><div className="mt-2 flex items-center justify-between gap-2"><span className="truncate text-[11px] text-mute">Responsable: <b className="text-ink">{item.owner}</b></span><select value={item.status} onChange={(e) => changeStatus(item, e.target.value)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold outline-none ${STATUS_STYLE[item.status] || STATUS_STYLE.Abierta}`}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></div></div>)}</div> : <p className="rounded-lg border border-dashed border-amber/30 bg-amber/5 p-3 text-xs text-amber">Sin contramedida vinculada a esta causa.</p>}</div>; })}</div>;
+}
+function ActionTable({ actions, changeStatus }) { if (!actions.length) return <div className="py-10 text-center"><ClipboardCheck className="mx-auto mb-2 text-mute" /><p className="text-sm text-mute">Aún no hay contramedidas registradas.</p></div>; return <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="border-b border-line font-mono uppercase tracking-wide text-mute"><tr><th className="pb-3">ID / fecha</th><th className="pb-3">Departamento</th><th className="pb-3">Causa</th><th className="pb-3">Problema y contramedida</th><th className="pb-3">Responsable</th><th className="pb-3">Compromiso</th><th className="pb-3">Estatus</th></tr></thead><tbody className="divide-y divide-line/60">{actions.map((item) => <tr key={item.id} className="group hover:bg-white/[.018]"><td className="py-3 pr-4"><p className="font-mono text-cyan">{item.id}</p><p className="mt-1 text-mute">{shortDate(item.scrapDate || item.createdAt)}</p></td><td className="py-3 pr-4 font-semibold text-ink">{item.department}</td><td className="max-w-[170px] py-3 pr-4 text-mute"><span className="line-clamp-2">{item.cause || 'Sin vincular'}</span></td><td className="max-w-md py-3 pr-5"><p className="font-medium text-ink">{item.problem}</p><p className="mt-1 line-clamp-2 text-mute">{item.action}</p></td><td className="py-3 pr-4 text-ink">{item.owner}</td><td className="py-3 pr-4 text-mute">{shortDate(item.dueDate)}</td><td className="py-3"><select value={item.status} onChange={(e) => changeStatus(item, e.target.value)} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold outline-none ${STATUS_STYLE[item.status] || STATUS_STYLE.Abierta}`}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></td></tr>)}</tbody></table></div>; }
 
-function ActionForm({ form, setForm, departments, onClose, onSubmit, error, saving }) {
+function ActionForm({ form, setForm, departments, causes, onClose, onSubmit, error, saving }) {
   const field = (name) => ({ value: form[name], onChange: (e) => setForm((current) => ({ ...current, [name]: e.target.value })) });
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-void/80 p-4 backdrop-blur-sm"><form onSubmit={onSubmit} className="animate-rise max-h-[92vh] w-full max-w-2xl overflow-auto rounded-2xl border border-line glass-panel p-5 shadow-2xl sm:p-6"><div className="mb-5 flex items-start justify-between"><div><h3 className="text-lg font-bold text-ink">Nueva contramedida</h3><p className="mt-1 text-xs text-mute">El registro se guardará en la pestaña Contramedidas del Google Sheet.</p></div><button type="button" onClick={onClose} className="rounded-lg border border-line p-2 text-mute hover:text-ink"><X size={17} /></button></div>{error && <p className="mb-4 rounded-lg border border-coral/30 bg-coral/10 p-3 text-xs text-coral">{error}</p>}<div className="grid gap-4 sm:grid-cols-2"><FormField label="Fecha del scrap"><input type="date" {...field('scrapDate')} /></FormField><FormField label="Departamento *"><select required {...field('department')}><option value="">Seleccionar…</option>{departments.map((d) => <option key={d}>{d}</option>)}</select></FormField><FormField label="Problema detectado *" full><textarea required rows="2" placeholder="Describe la desviación o causa…" {...field('problem')} /></FormField><FormField label="Contramedida *" full><textarea required rows="3" placeholder="Acción concreta a ejecutar…" {...field('action')} /></FormField><FormField label="Responsable *"><input required placeholder="Nombre o equipo" {...field('owner')} /></FormField><FormField label="Fecha compromiso"><input type="date" {...field('dueDate')} /></FormField><FormField label="Estatus"><select {...field('status')}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></FormField><FormField label="Notas"><input placeholder="Evidencia, folio, comentario…" {...field('notes')} /></FormField></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-line px-4 py-2.5 text-sm text-mute hover:text-ink">Cancelar</button><button disabled={saving} className="flex items-center gap-2 rounded-xl bg-cyan px-4 py-2.5 text-sm font-bold text-void disabled:opacity-50">{saving ? <RefreshCw size={16} className="animate-spin" /> : <ChevronRight size={16} />}{saving ? 'Guardando…' : 'Registrar acción'}</button></div></form></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-void/80 p-4 backdrop-blur-sm"><form onSubmit={onSubmit} className="animate-rise max-h-[92vh] w-full max-w-2xl overflow-auto rounded-2xl border border-line glass-panel p-5 shadow-2xl sm:p-6"><div className="mb-5 flex items-start justify-between"><div><h3 className="text-lg font-bold text-ink">Nueva contramedida</h3><p className="mt-1 text-xs text-mute">El registro se guardará en la pestaña Contramedidas del Google Sheet.</p></div><button type="button" onClick={onClose} className="rounded-lg border border-line p-2 text-mute hover:text-ink"><X size={17} /></button></div>{error && <p className="mb-4 rounded-lg border border-coral/30 bg-coral/10 p-3 text-xs text-coral">{error}</p>}<div className="grid gap-4 sm:grid-cols-2"><FormField label="Fecha del scrap"><input type="date" {...field('scrapDate')} /></FormField><FormField label="Departamento *"><select required {...field('department')}><option value="">Seleccionar…</option>{departments.map((d) => <option key={d}>{d}</option>)}</select></FormField><FormField label="Causa asociada *" full><select required {...field('cause')}><option value="">Seleccionar causa del Top 10…</option>{causes.map((cause) => <option key={cause}>{cause}</option>)}</select></FormField><FormField label="Issue / problema detectado *" full><textarea required rows="2" placeholder="Describe la desviación o issue…" {...field('problem')} /></FormField><FormField label="Contramedida *" full><textarea required rows="3" placeholder="Acción concreta a ejecutar…" {...field('action')} /></FormField><FormField label="Responsable *"><input required placeholder="Nombre o equipo" {...field('owner')} /></FormField><FormField label="Fecha compromiso"><input type="date" {...field('dueDate')} /></FormField><FormField label="Estatus"><select {...field('status')}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></FormField><FormField label="Notas"><input placeholder="Evidencia, folio, comentario…" {...field('notes')} /></FormField></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-line px-4 py-2.5 text-sm text-mute hover:text-ink">Cancelar</button><button disabled={saving} className="flex items-center gap-2 rounded-xl bg-cyan px-4 py-2.5 text-sm font-bold text-void disabled:opacity-50">{saving ? <RefreshCw size={16} className="animate-spin" /> : <ChevronRight size={16} />}{saving ? 'Guardando…' : 'Registrar acción'}</button></div></form></div>;
 }
 function FormField({ label, full, children }) { return <label className={`block ${full ? 'sm:col-span-2' : ''}`}><span className="mb-1.5 block text-xs font-semibold text-mute">{label}</span><div className="[&>*]:w-full [&>*]:rounded-lg [&>*]:border [&>*]:border-line [&>*]:bg-void/65 [&>*]:px-3 [&>*]:py-2.5 [&>*]:text-sm [&>*]:text-ink [&>*]:outline-none focus-within:[&>*]:border-cyan">{children}</div></label>; }
 
