@@ -2,385 +2,219 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-import { DollarSign, Package, User, Users } from 'lucide-react';
+import {
+  Activity, BarChart3, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign,
+  ClipboardCheck, Clock3, Factory, Layers3, Package, Plus, RefreshCw, ShieldAlert,
+  Sparkles, Target, Users, X,
+} from 'lucide-react';
 
-const SHIFT_PALETTE = ['#34C3E8', '#F0A73F', '#9B7EF0', '#34D399'];
-const AREA_PALETTE = ['#34C3E8', '#5B9FD6', '#7FB8E8', '#A3D0F0'];
-const REASON_GRADIENT = ['#F2555A', '#F0793F', '#F0A73F', '#F0D43F', '#34C3E8', '#34C3E8', '#34C3E8', '#34C3E8', '#34C3E8', '#34C3E8'];
+const COLORS = ['#34C3E8', '#F0A73F', '#9B7EF0', '#34D399', '#F2555A'];
+const EMPTY_FILTERS = { week: 'all', shift: 'all', area: 'all', depto: 'all', model: 'all' };
+const EMPTY_ACTION = { scrapDate: '', department: '', problem: '', action: '', owner: '', dueDate: '', status: 'Abierta', notes: '' };
+const STATUS_STYLE = {
+  Abierta: 'border-coral/30 bg-coral/10 text-coral',
+  'En proceso': 'border-amber/30 bg-amber/10 text-amber',
+  Implementada: 'border-cyan/30 bg-cyan/10 text-cyan',
+  Cerrada: 'border-teal/30 bg-teal/10 text-teal',
+};
 
-const RISK_TIERS = [
-  { label: 'CRITICAL', text: '#F2555A', bg: 'rgba(242,85,90,0.15)', border: '#F2555A' },
-  { label: 'HIGH', text: '#F0A73F', bg: 'rgba(240,167,63,0.15)', border: '#F0A73F' },
-  { label: 'MEDIUM', text: '#F0D43F', bg: 'rgba(240,212,63,0.15)', border: '#F0D43F' },
-];
-
-function money(n) {
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-
-function sortWeeks(a, b) {
-  const na = parseFloat(a);
-  const nb = parseFloat(b);
-  if (!isNaN(na) && !isNaN(nb)) return na - nb;
-  return a.localeCompare(b);
-}
-
+function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
+function sortWeeks(a, b) { return (parseFloat(a) || 0) - (parseFloat(b) || 0) || String(a).localeCompare(String(b)); }
 function groupSum(rows, keyFn) {
   const map = new Map();
-  rows.forEach((r) => {
-    const key = keyFn(r) || 'Sin asignar';
-    const entry = map.get(key) || { cost: 0, qty: 0, count: 0 };
-    entry.cost += r.total_cost_num;
-    entry.qty += r.quantity_num;
-    entry.count += 1;
-    map.set(key, entry);
+  rows.forEach((row) => {
+    const key = keyFn(row) || 'Sin asignar';
+    const item = map.get(key) || { cost: 0, qty: 0, count: 0 };
+    item.cost += row.total_cost_num; item.qty += row.quantity_num; item.count += 1; map.set(key, item);
   });
-  return Array.from(map.entries()).map(([name, v]) => ({ name, ...v }));
+  return [...map.entries()].map(([name, value]) => ({ name, ...value }));
 }
-
-const EMPTY_FILTERS = { week: 'all', shift: 'all', area: 'all', depto: 'all', model: 'all' };
+function getDate(row) { return row.date || row.fecha || row.scrap_date || row.fecha_scrap || row.day || 'Sin fecha'; }
+function shortDate(value) {
+  if (!value || value === 'Sin fecha') return value || '—';
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+}
 
 export default function Home() {
   const [rows, setRows] = useState([]);
+  const [actions, setActions] = useState([]);
   const [status, setStatus] = useState('loading');
+  const [actionsStatus, setActionsStatus] = useState('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [tab, setTab] = useState('overview');
+  const [dailyMode, setDailyMode] = useState('date');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_ACTION);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/scrap')
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.error) throw new Error(json.error);
-        setRows(json.data || []);
-        setStatus('ready');
-      })
-      .catch((err) => {
-        setErrorMsg(err.message);
-        setStatus('error');
-      });
-  }, []);
+  const loadScrap = () => {
+    setStatus('loading');
+    fetch('/api/scrap').then((res) => res.json()).then((json) => {
+      if (json.error) throw new Error(json.error);
+      setRows(json.data || []); setStatus('ready');
+    }).catch((error) => { setErrorMsg(error.message); setStatus('error'); });
+  };
+  const loadActions = () => {
+    setActionsStatus('loading');
+    fetch('/api/countermeasures').then((res) => res.json()).then((json) => {
+      if (json.error) throw new Error(json.error);
+      setActions(json.data || []); setActionsStatus('ready');
+    }).catch((error) => { setActionsStatus('error'); setFormError(error.message); });
+  };
+  useEffect(() => { loadScrap(); }, []);
+  useEffect(() => { if (tab === 'daily' && actionsStatus === 'idle') loadActions(); }, [tab, actionsStatus]);
 
   const options = useMemo(() => {
-    const uniq = (field) =>
-      Array.from(new Set(rows.map((r) => r[field]).filter(Boolean))).sort();
-    return {
-      week: uniq('week').sort(sortWeeks),
-      shift: uniq('shift'),
-      area: uniq('area'),
-      depto: uniq('depto_responsible'),
-      model: uniq('model'),
-    };
+    const uniq = (field) => [...new Set(rows.map((r) => r[field]).filter(Boolean))].sort();
+    return { week: uniq('week').sort(sortWeeks), shift: uniq('shift'), area: uniq('area'), depto: uniq('depto_responsible'), model: uniq('model') };
   }, [rows]);
-
-  const filtered = useMemo(
-    () =>
-      rows.filter(
-        (r) =>
-          (filters.week === 'all' || r.week === filters.week) &&
-          (filters.shift === 'all' || r.shift === filters.shift) &&
-          (filters.area === 'all' || r.area === filters.area) &&
-          (filters.depto === 'all' || r.depto_responsible === filters.depto) &&
-          (filters.model === 'all' || r.model === filters.model)
-      ),
-    [rows, filters]
-  );
+  const filtered = useMemo(() => rows.filter((r) =>
+    (filters.week === 'all' || r.week === filters.week) &&
+    (filters.shift === 'all' || r.shift === filters.shift) &&
+    (filters.area === 'all' || r.area === filters.area) &&
+    (filters.depto === 'all' || r.depto_responsible === filters.depto) &&
+    (filters.model === 'all' || r.model === filters.model)
+  ), [rows, filters]);
 
   const totalCost = filtered.reduce((sum, r) => sum + r.total_cost_num, 0);
   const totalQty = filtered.reduce((sum, r) => sum + r.quantity_num, 0);
-
-  const byShift = useMemo(
-    () => groupSum(filtered, (r) => r.shift).sort((a, b) => a.name.localeCompare(b.name)),
-    [filtered]
-  );
-  const highestScrapShift = useMemo(
-    () => [...byShift].sort((a, b) => b.cost - a.cost)[0]?.name || 'N/A',
-    [byShift]
-  );
-
-  const byDepto = useMemo(
-    () => groupSum(filtered, (r) => r.depto_responsible).sort((a, b) => b.qty - a.qty),
-    [filtered]
-  );
-  const topDepto = byDepto[0]?.name || 'N/A';
-  const top3Deptos = byDepto.slice(0, 3);
-
-  const byArea = useMemo(
-    () => groupSum(filtered, (r) => r.area).sort((a, b) => b.cost - a.cost),
-    [filtered]
-  );
-
-  const byModel = useMemo(
-    () => groupSum(filtered, (r) => r.model).sort((a, b) => b.qty - a.qty),
-    [filtered]
-  );
-  const top3Models = byModel.slice(0, 3);
-
-  const byReason = useMemo(
-    () => groupSum(filtered, (r) => r.reason).sort((a, b) => b.cost - a.cost).slice(0, 10),
-    [filtered]
-  );
-
-  const weeklyTrend = useMemo(
-    () => groupSum(filtered, (r) => r.week).sort((a, b) => sortWeeks(a.name, b.name)),
-    [filtered]
-  );
-
+  const byShift = useMemo(() => groupSum(filtered, (r) => r.shift).sort((a, b) => a.name.localeCompare(b.name)), [filtered]);
+  const byDept = useMemo(() => groupSum(filtered, (r) => r.depto_responsible).sort((a, b) => b.qty - a.qty), [filtered]);
+  const byArea = useMemo(() => groupSum(filtered, (r) => r.area).sort((a, b) => b.cost - a.cost), [filtered]);
+  const byModel = useMemo(() => groupSum(filtered, (r) => r.model).sort((a, b) => b.qty - a.qty), [filtered]);
+  const byReason = useMemo(() => groupSum(filtered, (r) => r.reason).sort((a, b) => b.cost - a.cost).slice(0, 10), [filtered]);
+  const weeklyTrend = useMemo(() => groupSum(filtered, (r) => r.week).sort((a, b) => sortWeeks(a.name, b.name)), [filtered]);
+  const dailyPivot = useMemo(() => groupSum(filtered, (r) => dailyMode === 'date' ? getDate(r) : r.depto_responsible).sort((a, b) => dailyMode === 'date' ? String(a.name).localeCompare(String(b.name)) : b.cost - a.cost), [filtered, dailyMode]);
+  const openActions = actions.filter((item) => item.status !== 'Cerrada').length;
+  const closedActions = actions.filter((item) => item.status === 'Cerrada').length;
+  const actionCoverage = byDept.length ? Math.round((new Set(actions.map((a) => a.department)).size / byDept.length) * 100) : 0;
   const activeFilterCount = Object.values(filters).filter((v) => v !== 'all').length;
 
-  return (
-    <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mb-6 flex flex-col justify-between gap-4 border-b border-line pb-4 lg:flex-row lg:items-start">
-        <div>
-          <h1 className="bg-gradient-to-r from-cyan to-[#7FE0F5] bg-clip-text text-2xl font-bold text-transparent sm:text-3xl">
-            PE Scrap Control Tower
-          </h1>
-          <p className="mt-1 text-sm text-mute">
-            Real-time scrap monitoring dashboard · Hisense Manufacturing
-          </p>
-          {status === 'ready' && (
-            <p className="mt-1 text-xs text-mute/70">Loaded {filtered.length.toLocaleString('en-US')} records</p>
-          )}
-        </div>
+  async function saveAction(event) {
+    event.preventDefault(); setSaving(true); setFormError('');
+    try {
+      const response = await fetch('/api/countermeasures', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const json = await response.json(); if (!response.ok) throw new Error(json.error);
+      setActions((current) => [json.data, ...current]); setForm(EMPTY_ACTION); setShowForm(false);
+    } catch (error) { setFormError(error.message); } finally { setSaving(false); }
+  }
+  async function changeStatus(item, nextStatus) {
+    setActions((current) => current.map((action) => action.id === item.id ? { ...action, status: nextStatus } : action));
+    const response = await fetch('/api/countermeasures', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, status: nextStatus }) });
+    if (!response.ok) { loadActions(); }
+  }
 
-        {status === 'ready' && (
-          <div className="flex flex-wrap gap-2">
-            <FilterPill label="Semana" value={filters.week} options={options.week} onChange={(v) => setFilters((f) => ({ ...f, week: v }))} formatOption={(w) => `Week ${w}`} placeholder="All Weeks" />
-            <FilterPill label="Turno" value={filters.shift} options={options.shift} onChange={(v) => setFilters((f) => ({ ...f, shift: v }))} formatOption={(s) => `Shift ${s}`} placeholder="All Shifts" />
-            <FilterPill label="Área" value={filters.area} options={options.area} onChange={(v) => setFilters((f) => ({ ...f, area: v }))} placeholder="All Areas" />
-            <FilterPill label="Depto" value={filters.depto} options={options.depto} onChange={(v) => setFilters((f) => ({ ...f, depto: v }))} placeholder="All Depts" />
-            <FilterPill label="Modelo" value={filters.model} options={options.model} onChange={(v) => setFilters((f) => ({ ...f, model: v }))} placeholder="All Models" />
-            {activeFilterCount > 0 && (
-              <button
-                onClick={() => setFilters(EMPTY_FILTERS)}
-                className="rounded-full border border-coral/40 px-3 py-1.5 text-xs font-medium text-coral hover:bg-coral/10"
-              >
-                Clear ({activeFilterCount})
-              </button>
-            )}
+  return (
+    <main className="mx-auto min-h-screen max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
+      <header className="animate-enter mb-5 rounded-2xl border border-line/80 glass-panel px-4 py-4 shadow-glow sm:px-6">
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-xl border border-cyan/25 bg-cyan/10 text-cyan shadow-cyan"><Activity size={23} /></div>
+            <div><div className="flex items-center gap-2"><h1 className="text-xl font-bold tracking-tight text-ink sm:text-2xl">PE Scrap <span className="text-cyan">Control Tower</span></h1><span className="pulse-dot h-2 w-2 rounded-full bg-teal" /></div><p className="mt-0.5 text-xs text-mute">Manufacturing intelligence · Datos en vivo</p></div>
           </div>
-        )}
+          <nav className="flex w-fit rounded-xl border border-line bg-void/55 p-1">
+            <NavButton active={tab === 'overview'} onClick={() => setTab('overview')} icon={<BarChart3 size={15} />} label="Vista ejecutiva" />
+            <NavButton active={tab === 'daily'} onClick={() => setTab('daily')} icon={<ClipboardCheck size={15} />} label="Análisis diario" badge={openActions || undefined} />
+          </nav>
+        </div>
       </header>
 
-      {status === 'loading' && (
-        <p className="font-mono text-sm text-mute">Cargando datos de la hoja…</p>
-      )}
-
-      {status === 'error' && (
-        <div className="rounded-md border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-coral">
-          No se pudieron cargar los datos: {errorMsg}
+      {status === 'loading' && <LoadingState />}
+      {status === 'error' && <div className="rounded-xl border border-coral/35 bg-coral/10 p-4 text-sm text-coral">No se pudieron cargar los datos: {errorMsg}</div>}
+      {status === 'ready' && <>
+        <div className="animate-enter mb-5 flex flex-col justify-between gap-3 rounded-xl border border-line/70 bg-panel/65 p-3 lg:flex-row lg:items-center">
+          <div className="flex items-center gap-2 text-xs text-mute"><Layers3 size={15} className="text-cyan" /><span>{filtered.length.toLocaleString('en-US')} registros visibles</span>{activeFilterCount > 0 && <button onClick={() => setFilters(EMPTY_FILTERS)} className="ml-2 text-coral hover:text-white">Limpiar {activeFilterCount}</button>}</div>
+          <div className="flex flex-wrap gap-2">
+            <Filter value={filters.week} options={options.week} onChange={(v) => setFilters((f) => ({ ...f, week: v }))} placeholder="Todas las semanas" format={(v) => `Semana ${v}`} />
+            <Filter value={filters.shift} options={options.shift} onChange={(v) => setFilters((f) => ({ ...f, shift: v }))} placeholder="Todos los turnos" format={(v) => `Turno ${v}`} />
+            <Filter value={filters.area} options={options.area} onChange={(v) => setFilters((f) => ({ ...f, area: v }))} placeholder="Todas las áreas" />
+            <Filter value={filters.depto} options={options.depto} onChange={(v) => setFilters((f) => ({ ...f, depto: v }))} placeholder="Todos los deptos" />
+            <Filter value={filters.model} options={options.model} onChange={(v) => setFilters((f) => ({ ...f, model: v }))} placeholder="Todos los modelos" />
+          </div>
         </div>
-      )}
-
-      {status === 'ready' && (
-        <>
-          {/* KPI cards */}
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <KpiCard icon={<DollarSign size={20} />} iconColor="#34D399" label="TOTAL SCRAP COST" value={money(totalCost)} />
-            <KpiCard icon={<Package size={20} />} iconColor="#34C3E8" label="TOTAL SCRAP QTY" value={totalQty.toLocaleString('en-US')} />
-            <KpiCard icon={<User size={20} />} iconColor="#9B7EF0" label="HIGHEST SCRAP SHIFT" value={highestScrapShift} />
-            <KpiCard icon={<Users size={20} />} iconColor="#5B9FD6" label="TOP RESPONSIBLE DEPT" value={topDepto} />
-          </div>
-
-          {/* Fila: costo por turno | top 3 departamentos */}
-          <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Panel title="Scrap Cost by Shift">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={byShift} margin={{ left: 8, right: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1F2A35" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8496A8' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#8496A8' }} tickFormatter={(v) => `$${v}`} />
-                  <Tooltip
-                    formatter={(v) => money(v)}
-                    contentStyle={{ background: '#1A2530', border: '1px solid #26333F', borderRadius: 6, fontSize: 12 }}
-                  />
-                  <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
-                    {byShift.map((entry, index) => (
-                      <Cell key={entry.name} fill={SHIFT_PALETTE[index % SHIFT_PALETTE.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </Panel>
-
-            <Panel title="Top 3 Scrap Departments by Qty">
-              <RankTable rows={top3Deptos} nameLabel="Department" valueKey="qty" formatValue={(v) => v.toLocaleString('en-US')} />
-            </Panel>
-          </div>
-
-          {/* Fila: costo por área | top 3 modelos */}
-          <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Panel title="Scrap Cost by Area">
-              <div className="flex items-center gap-6">
-                <div className="relative h-[180px] w-[180px] shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={byArea} dataKey="cost" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={2}>
-                        {byArea.map((entry, index) => (
-                          <Cell key={entry.name} fill={AREA_PALETTE[index % AREA_PALETTE.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(v) => money(v)}
-                        contentStyle={{ background: '#1A2530', border: '1px solid #26333F', borderRadius: 6, fontSize: 12 }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium uppercase tracking-wide text-mute">Total</p>
-                  <p className="mb-3 text-xl font-bold text-ink">{money(totalCost)}</p>
-                  <ul className="space-y-2">
-                    {byArea.map((a, i) => (
-                      <li key={a.name} className="flex items-center gap-2 text-sm">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: AREA_PALETTE[i % AREA_PALETTE.length] }} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium text-ink">{a.name}</span>
-                          <span className="block text-xs text-mute">{money(a.cost)}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </Panel>
-
-            <Panel title="Top 3 Defective Models by Qty">
-              <RankTable rows={top3Models} nameLabel="Model" valueKey="qty" formatValue={(v) => v.toLocaleString('en-US')} />
-            </Panel>
-          </div>
-
-          {/* Top 10 razones */}
-          <Panel title="Top 10 Scrap Reasons" className="mb-6">
-            <ResponsiveContainer width="100%" height={340}>
-              <BarChart data={byReason} layout="vertical" margin={{ left: 24, right: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1F2A35" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#8496A8' }} tickFormatter={(v) => `$${v}`} />
-                <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 11, fill: '#8496A8' }} />
-                <Tooltip
-                  formatter={(v) => money(v)}
-                  contentStyle={{ background: '#1A2530', border: '1px solid #26333F', borderRadius: 6, fontSize: 12 }}
-                />
-                <Bar dataKey="cost" radius={[0, 4, 4, 0]}>
-                  {byReason.map((entry, index) => (
-                    <Cell key={entry.name} fill={REASON_GRADIENT[index % REASON_GRADIENT.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </Panel>
-
-          {/* Tendencia semanal */}
-          <Panel title="Weekly Scrap Cost Trend">
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={weeklyTrend} margin={{ left: 8, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1F2A35" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8496A8' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#8496A8' }} tickFormatter={(v) => `$${v}`} />
-                <Tooltip
-                  formatter={(v) => money(v)}
-                  contentStyle={{ background: '#1A2530', border: '1px solid #26333F', borderRadius: 6, fontSize: 12 }}
-                />
-                <Line type="monotone" dataKey="cost" stroke="#34C3E8" strokeWidth={2} dot={{ r: 3, fill: '#34C3E8' }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </Panel>
-        </>
-      )}
+        {tab === 'overview' ? <Overview totalCost={totalCost} totalQty={totalQty} byShift={byShift} byDept={byDept} byArea={byArea} byModel={byModel} byReason={byReason} weeklyTrend={weeklyTrend} /> :
+          <DailyAnalysis dailyMode={dailyMode} setDailyMode={setDailyMode} dailyPivot={dailyPivot} byDept={byDept} actions={actions} actionsStatus={actionsStatus} openActions={openActions} closedActions={closedActions} actionCoverage={actionCoverage} showForm={showForm} setShowForm={setShowForm} form={form} setForm={setForm} formError={formError} saving={saving} saveAction={saveAction} changeStatus={changeStatus} />}
+      </>}
     </main>
   );
 }
 
-function FilterPill({ value, options, onChange, formatOption, placeholder }) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-full border border-line bg-panel px-3 py-1.5 text-xs font-medium text-ink outline-none focus:border-cyan"
-    >
-      <option value="all">{placeholder}</option>
-      {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {formatOption ? formatOption(opt) : opt}
-        </option>
-      ))}
-    </select>
-  );
+function Overview({ totalCost, totalQty, byShift, byDept, byArea, byModel, byReason, weeklyTrend }) {
+  return <section className="animate-rise">
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Kpi icon={<CircleDollarSign />} color="text-teal" label="Costo total scrap" value={money(totalCost)} />
+      <Kpi icon={<Package />} color="text-cyan" label="Cantidad total" value={totalQty.toLocaleString('en-US')} />
+      <Kpi icon={<Factory />} color="text-violet" label="Turno de mayor costo" value={[...byShift].sort((a, b) => b.cost - a.cost)[0]?.name || 'N/A'} />
+      <Kpi icon={<ShieldAlert />} color="text-amber" label="Departamento crítico" value={byDept[0]?.name || 'N/A'} />
+    </div>
+    <div className="mb-5 grid gap-4 lg:grid-cols-2">
+      <Panel title="Costo de scrap por turno" subtitle="Comparación operacional"><Chart type="bar" data={byShift} dataKey="cost" /></Panel>
+      <Panel title="Departamentos con mayor impacto" subtitle="Top por cantidad"><Rank rows={byDept.slice(0, 5)} /></Panel>
+    </div>
+    <div className="mb-5 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
+      <Panel title="Distribución por área" subtitle="Participación en costo"><Donut data={byArea} total={totalCost} /></Panel>
+      <Panel title="Modelos con mayor scrap" subtitle="Cantidad acumulada"><Chart type="bar" data={byModel.slice(0, 8)} dataKey="qty" /></Panel>
+    </div>
+    <Panel title="Principales razones de scrap" subtitle="Top 10 por costo" className="mb-5"><Chart type="horizontal" data={byReason} dataKey="cost" height={350} /></Panel>
+    <Panel title="Tendencia semanal" subtitle="Evolución de costo"><Chart type="line" data={weeklyTrend} dataKey="cost" /></Panel>
+  </section>;
 }
 
-function KpiCard({ icon, iconColor, label, value }) {
-  return (
-    <div className="rounded-xl border border-line bg-panel p-4 shadow-glow">
-      <div className="mb-2 flex items-center gap-2">
-        <span style={{ color: iconColor }}>{icon}</span>
-        <p className="font-mono text-[10px] uppercase tracking-widest text-mute">{label}</p>
-      </div>
-      <p className="truncate text-2xl font-bold text-ink">{value}</p>
+function DailyAnalysis(props) {
+  const { dailyMode, setDailyMode, dailyPivot, byDept, actions, actionsStatus, openActions, closedActions, actionCoverage, showForm, setShowForm, form, setForm, formError, saving, saveAction, changeStatus } = props;
+  return <section className="animate-rise">
+    <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+      <div><h2 className="text-xl font-bold text-ink">Análisis diario y contramedidas</h2><p className="mt-1 text-sm text-mute">Pivotea el impacto, asigna responsables y conserva el historial departamental.</p></div>
+      <button onClick={() => setShowForm(true)} className="flex items-center justify-center gap-2 rounded-xl bg-cyan px-4 py-2.5 text-sm font-bold text-void shadow-cyan hover:bg-[#6bd8ef]"><Plus size={17} /> Nueva contramedida</button>
     </div>
-  );
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Kpi icon={<Clock3 />} color="text-coral" label="Acciones abiertas" value={openActions} />
+      <Kpi icon={<CheckCircle2 />} color="text-teal" label="Acciones cerradas" value={closedActions} />
+      <Kpi icon={<Target />} color="text-amber" label="Cobertura departamental" value={`${actionCoverage}%`} />
+      <Kpi icon={<Users />} color="text-violet" label="Deptos con scrap" value={byDept.length} />
+    </div>
+    <div className="mb-5 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
+      <Panel title="Pivote de impacto" subtitle={dailyMode === 'date' ? 'Costo y cantidad por día' : 'Costo y cantidad por departamento'} action={<div className="flex rounded-lg border border-line bg-void/50 p-1"><MiniTab active={dailyMode === 'date'} onClick={() => setDailyMode('date')}>Por día</MiniTab><MiniTab active={dailyMode === 'department'} onClick={() => setDailyMode('department')}>Por depto</MiniTab></div>}>
+        <Chart type="bar" data={dailyPivot.slice(-14)} dataKey="cost" formatName={dailyMode === 'date' ? shortDate : undefined} />
+      </Panel>
+      <Panel title="Matriz departamental" subtitle="Prioridad para plan de acción"><DepartmentMatrix rows={byDept} actions={actions} /></Panel>
+    </div>
+    <Panel title="Registro de contramedidas" subtitle="Historial compartido en Google Sheets" action={<span className="flex items-center gap-1.5 text-xs text-mute"><RefreshCw size={12} className={actionsStatus === 'loading' ? 'animate-spin' : ''} />{actions.length} registros</span>}>
+      {actionsStatus === 'error' && <p className="rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber">Para activar el registro, cambia la cuenta de servicio del Google Sheet de Lector a Editor.</p>}
+      {actionsStatus === 'loading' ? <p className="py-8 text-center text-sm text-mute">Cargando historial…</p> : <ActionTable actions={actions} changeStatus={changeStatus} />}
+    </Panel>
+    {showForm && <ActionForm form={form} setForm={setForm} departments={byDept.map((d) => d.name)} onClose={() => { setShowForm(false); setFormError(''); }} onSubmit={saveAction} error={formError} saving={saving} />}
+  </section>;
 }
 
-function Panel({ title, children, className = '' }) {
-  return (
-    <div className={`rounded-xl border border-line bg-panel p-4 shadow-glow ${className}`}>
-      <h2 className="mb-4 text-sm font-semibold text-cyan">{title}</h2>
-      {children}
-    </div>
-  );
-}
+function NavButton({ active, onClick, icon, label, badge }) { return <button onClick={onClick} className={`relative flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold sm:text-sm ${active ? 'bg-panel2 text-ink shadow-glow' : 'text-mute hover:text-ink'}`}>{icon}{label}{badge ? <span className="rounded-full bg-coral/15 px-1.5 text-[10px] text-coral">{badge}</span> : null}{active && <span className="tab-indicator absolute -bottom-1 left-3 right-3 h-0.5 rounded-full bg-cyan" />}</button>; }
+function MiniTab({ active, onClick, children }) { return <button onClick={onClick} className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${active ? 'bg-cyan/15 text-cyan' : 'text-mute'}`}>{children}</button>; }
+function Filter({ value, options, onChange, placeholder, format }) { return <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-lg border border-line bg-void/65 px-3 py-2 text-xs text-ink outline-none hover:border-cyan/40 focus:border-cyan"><option value="all">{placeholder}</option>{options.map((option) => <option key={option} value={option}>{format ? format(option) : option}</option>)}</select>; }
+function LoadingState() { return <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Sparkles className="mx-auto mb-3 animate-pulse text-cyan" /><p className="font-mono text-sm text-mute">Sincronizando control tower…</p></div></div>; }
+function Kpi({ icon, color, label, value }) { return <div className="panel-hover shimmer rounded-xl border border-line glass-panel p-4 shadow-glow"><div className={`mb-3 w-fit ${color}`}>{icon}</div><p className="mb-1 font-mono text-[10px] uppercase tracking-[.16em] text-mute">{label}</p><p className="truncate text-xl font-bold text-ink sm:text-2xl">{value}</p></div>; }
+function Panel({ title, subtitle, action, children, className = '' }) { return <div className={`panel-hover rounded-2xl border border-line glass-panel p-4 shadow-glow sm:p-5 ${className}`}><div className="mb-4 flex items-start justify-between gap-3"><div><h3 className="text-sm font-semibold text-ink">{title}</h3>{subtitle && <p className="mt-1 text-xs text-mute">{subtitle}</p>}</div>{action}</div>{children}</div>; }
 
-function RankTable({ rows, nameLabel, valueKey, formatValue }) {
-  if (rows.length === 0) {
-    return <p className="text-sm text-mute">Sin datos para este filtro.</p>;
-  }
-  const max = Math.max(...rows.map((r) => r[valueKey]), 1);
-  return (
-    <div>
-      <div className="mb-2 grid grid-cols-[80px_1fr_70px] gap-2 text-[11px] font-mono uppercase tracking-wide text-mute">
-        <span>Risk</span>
-        <span>{nameLabel}</span>
-        <span className="text-right">Qty</span>
-      </div>
-      <div className="space-y-3">
-        {rows.map((r, i) => {
-          const tier = RISK_TIERS[i] || RISK_TIERS[RISK_TIERS.length - 1];
-          const pct = Math.max(6, Math.round((r[valueKey] / max) * 100));
-          return (
-            <div key={r.name}>
-              <div className="grid grid-cols-[80px_1fr_70px] items-center gap-2">
-                <span
-                  className="w-fit rounded-full px-2 py-0.5 text-[10px] font-bold"
-                  style={{ color: tier.text, background: tier.bg, border: `1px solid ${tier.border}` }}
-                >
-                  {tier.label}
-                </span>
-                <span className="truncate text-sm font-medium text-ink">{r.name}</span>
-                <span className="text-right text-sm font-mono font-semibold text-ink">
-                  {formatValue(r[valueKey])}
-                </span>
-              </div>
-              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-panel2">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${tier.border}, #34C3E8)` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+function Chart({ type, data, dataKey, height = 280, formatName }) {
+  const common = { background: '#17222E', border: '1px solid #243241', borderRadius: 10, fontSize: 12 };
+  if (!data.length) return <p className="py-16 text-center text-sm text-mute">Sin datos para estos filtros.</p>;
+  if (type === 'line') return <ResponsiveContainer width="100%" height={height}><LineChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#1F2A35" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8295A7' }} /><YAxis tick={{ fontSize: 11, fill: '#8295A7' }} tickFormatter={(v) => `$${v}`} /><Tooltip formatter={(v) => money(v)} contentStyle={common} /><Line type="monotone" dataKey={dataKey} stroke="#34C3E8" strokeWidth={3} dot={{ r: 3, fill: '#34C3E8' }} activeDot={{ r: 6 }} animationDuration={900} /></LineChart></ResponsiveContainer>;
+  const horizontal = type === 'horizontal';
+  return <ResponsiveContainer width="100%" height={height}><BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={horizontal ? { left: 30, right: 30 } : { left: 0, right: 8 }}><CartesianGrid strokeDasharray="3 3" stroke="#1F2A35" vertical={!horizontal} horizontal={horizontal} />{horizontal ? <><XAxis type="number" tick={{ fontSize: 11, fill: '#8295A7' }} /><YAxis type="category" dataKey="name" width={145} tick={{ fontSize: 10, fill: '#8295A7' }} /></> : <><XAxis dataKey="name" tickFormatter={formatName} tick={{ fontSize: 10, fill: '#8295A7' }} /><YAxis tick={{ fontSize: 11, fill: '#8295A7' }} tickFormatter={(v) => dataKey === 'cost' ? `$${v}` : v} /></>}<Tooltip formatter={(v) => dataKey === 'cost' ? money(v) : Number(v).toLocaleString()} contentStyle={common} /><Bar dataKey={dataKey} radius={horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0]} animationDuration={800}>{data.map((item, index) => <Cell key={item.name} fill={COLORS[index % COLORS.length]} />)}</Bar></BarChart></ResponsiveContainer>;
 }
+function Donut({ data, total }) { return <div className="flex items-center gap-5"><div className="relative h-52 w-52 shrink-0"><ResponsiveContainer><PieChart><Pie data={data} dataKey="cost" innerRadius={62} outerRadius={88} paddingAngle={3} animationDuration={900}>{data.map((item, i) => <Cell key={item.name} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => money(v)} contentStyle={{ background: '#17222E', border: '1px solid #243241', borderRadius: 10 }} /></PieChart></ResponsiveContainer><div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><p className="text-[10px] uppercase text-mute">Total</p><p className="text-sm font-bold text-ink">{money(total)}</p></div></div></div><div className="min-w-0 space-y-3">{data.map((item, i) => <div key={item.name} className="flex items-center gap-2 text-xs"><span className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} /><div><p className="font-semibold text-ink">{item.name}</p><p className="text-mute">{money(item.cost)}</p></div></div>)}</div></div>; }
+function Rank({ rows }) { const max = Math.max(...rows.map((r) => r.qty), 1); return <div className="space-y-4">{rows.map((row, i) => <div key={row.name}><div className="mb-1.5 flex items-center gap-3 text-sm"><span className="grid h-6 w-6 place-items-center rounded-md bg-panel2 font-mono text-[10px] text-mute">0{i + 1}</span><span className="min-w-0 flex-1 truncate font-medium text-ink">{row.name}</span><span className="font-mono font-bold text-ink">{row.qty.toLocaleString()}</span></div><div className="ml-9 h-1.5 overflow-hidden rounded-full bg-void"><div className="h-full rounded-full bg-gradient-to-r from-cyan to-violet transition-all duration-700" style={{ width: `${Math.max(5, row.qty / max * 100)}%` }} /></div></div>)}</div>; }
+function DepartmentMatrix({ rows, actions }) { return <div className="max-h-[280px] space-y-2 overflow-auto pr-1">{rows.slice(0, 8).map((row, i) => { const count = actions.filter((a) => a.department === row.name && a.status !== 'Cerrada').length; return <div key={row.name} className="flex items-center gap-3 rounded-lg border border-line/70 bg-void/35 p-3"><span className={`h-2 w-2 rounded-full ${i < 2 ? 'bg-coral' : i < 5 ? 'bg-amber' : 'bg-teal'}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-ink">{row.name}</p><p className="text-[11px] text-mute">{row.qty.toLocaleString()} pzas · {money(row.cost)}</p></div><span className="rounded-full border border-line px-2 py-1 text-[10px] text-mute">{count} abiertas</span></div>; })}</div>; }
+function ActionTable({ actions, changeStatus }) { if (!actions.length) return <div className="py-10 text-center"><ClipboardCheck className="mx-auto mb-2 text-mute" /><p className="text-sm text-mute">Aún no hay contramedidas registradas.</p></div>; return <div className="overflow-x-auto"><table className="w-full min-w-[950px] text-left text-xs"><thead className="border-b border-line font-mono uppercase tracking-wide text-mute"><tr><th className="pb-3">ID / fecha</th><th className="pb-3">Departamento</th><th className="pb-3">Problema y contramedida</th><th className="pb-3">Responsable</th><th className="pb-3">Compromiso</th><th className="pb-3">Estatus</th></tr></thead><tbody className="divide-y divide-line/60">{actions.map((item) => <tr key={item.id} className="group hover:bg-white/[.018]"><td className="py-3 pr-4"><p className="font-mono text-cyan">{item.id}</p><p className="mt-1 text-mute">{shortDate(item.scrapDate || item.createdAt)}</p></td><td className="py-3 pr-4 font-semibold text-ink">{item.department}</td><td className="max-w-md py-3 pr-5"><p className="font-medium text-ink">{item.problem}</p><p className="mt-1 line-clamp-2 text-mute">{item.action}</p></td><td className="py-3 pr-4 text-ink">{item.owner}</td><td className="py-3 pr-4 text-mute">{shortDate(item.dueDate)}</td><td className="py-3"><select value={item.status} onChange={(e) => changeStatus(item, e.target.value)} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold outline-none ${STATUS_STYLE[item.status] || STATUS_STYLE.Abierta}`}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></td></tr>)}</tbody></table></div>; }
+
+function ActionForm({ form, setForm, departments, onClose, onSubmit, error, saving }) {
+  const field = (name) => ({ value: form[name], onChange: (e) => setForm((current) => ({ ...current, [name]: e.target.value })) });
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-void/80 p-4 backdrop-blur-sm"><form onSubmit={onSubmit} className="animate-rise max-h-[92vh] w-full max-w-2xl overflow-auto rounded-2xl border border-line glass-panel p-5 shadow-2xl sm:p-6"><div className="mb-5 flex items-start justify-between"><div><h3 className="text-lg font-bold text-ink">Nueva contramedida</h3><p className="mt-1 text-xs text-mute">El registro se guardará en la pestaña Contramedidas del Google Sheet.</p></div><button type="button" onClick={onClose} className="rounded-lg border border-line p-2 text-mute hover:text-ink"><X size={17} /></button></div>{error && <p className="mb-4 rounded-lg border border-coral/30 bg-coral/10 p-3 text-xs text-coral">{error}</p>}<div className="grid gap-4 sm:grid-cols-2"><FormField label="Fecha del scrap"><input type="date" {...field('scrapDate')} /></FormField><FormField label="Departamento *"><select required {...field('department')}><option value="">Seleccionar…</option>{departments.map((d) => <option key={d}>{d}</option>)}</select></FormField><FormField label="Problema detectado *" full><textarea required rows="2" placeholder="Describe la desviación o causa…" {...field('problem')} /></FormField><FormField label="Contramedida *" full><textarea required rows="3" placeholder="Acción concreta a ejecutar…" {...field('action')} /></FormField><FormField label="Responsable *"><input required placeholder="Nombre o equipo" {...field('owner')} /></FormField><FormField label="Fecha compromiso"><input type="date" {...field('dueDate')} /></FormField><FormField label="Estatus"><select {...field('status')}><option>Abierta</option><option>En proceso</option><option>Implementada</option><option>Cerrada</option></select></FormField><FormField label="Notas"><input placeholder="Evidencia, folio, comentario…" {...field('notes')} /></FormField></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-line px-4 py-2.5 text-sm text-mute hover:text-ink">Cancelar</button><button disabled={saving} className="flex items-center gap-2 rounded-xl bg-cyan px-4 py-2.5 text-sm font-bold text-void disabled:opacity-50">{saving ? <RefreshCw size={16} className="animate-spin" /> : <ChevronRight size={16} />}{saving ? 'Guardando…' : 'Registrar acción'}</button></div></form></div>;
+}
+function FormField({ label, full, children }) { return <label className={`block ${full ? 'sm:col-span-2' : ''}`}><span className="mb-1.5 block text-xs font-semibold text-mute">{label}</span><div className="[&>*]:w-full [&>*]:rounded-lg [&>*]:border [&>*]:border-line [&>*]:bg-void/65 [&>*]:px-3 [&>*]:py-2.5 [&>*]:text-sm [&>*]:text-ink [&>*]:outline-none focus-within:[&>*]:border-cyan">{children}</div></label>; }
+
