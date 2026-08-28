@@ -57,6 +57,7 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState('');
   const [overviewFilters, setOverviewFilters] = useState(EMPTY_FILTERS);
   const [dailyFilters, setDailyFilters] = useState(EMPTY_FILTERS);
+  const [complianceFilters, setComplianceFilters] = useState(EMPTY_FILTERS);
   const [tab, setTab] = useState('overview');
   const [dailyMode, setDailyMode] = useState('date');
   const [dailyDate, setDailyDate] = useState('latest');
@@ -81,7 +82,7 @@ export default function Home() {
     }).catch((error) => { setActionsStatus('error'); setFormError(error.message); });
   };
   useEffect(() => { loadScrap(); }, []);
-  useEffect(() => { if (tab === 'daily' && actionsStatus === 'idle') loadActions(); }, [tab, actionsStatus]);
+  useEffect(() => { if ((tab === 'daily' || tab === 'compliance') && actionsStatus === 'idle') loadActions(); }, [tab, actionsStatus]);
 
   const options = useMemo(() => {
     const uniq = (field) => [...new Set(rows.map((r) => r[field]).filter(Boolean))].sort();
@@ -89,15 +90,16 @@ export default function Home() {
   }, [rows]);
   const overviewFiltered = useMemo(() => applyFilters(rows, overviewFilters), [rows, overviewFilters]);
   const dailyFiltered = useMemo(() => applyFilters(rows, dailyFilters), [rows, dailyFilters]);
+  const complianceFiltered = useMemo(() => applyFilters(rows, complianceFilters), [rows, complianceFilters]);
   const availableDates = useMemo(() => [...new Set(dailyFiltered.map(getDate).filter((date) => date && date !== 'Sin fecha'))].sort((a, b) => dateTime(a) - dateTime(b) || String(a).localeCompare(String(b))), [dailyFiltered]);
   const selectedDailyDate = dailyDate === 'latest' || !availableDates.includes(dailyDate) ? availableDates[availableDates.length - 1] || '' : dailyDate;
   const selectedDateIndex = availableDates.indexOf(selectedDailyDate);
   const previousDailyDate = selectedDateIndex > 0 ? availableDates[selectedDateIndex - 1] : '';
   const meetingRows = useMemo(() => selectedDailyDate ? dailyFiltered.filter((r) => getDate(r) === selectedDailyDate) : dailyFiltered, [dailyFiltered, selectedDailyDate]);
   const previousRows = useMemo(() => previousDailyDate ? dailyFiltered.filter((r) => getDate(r) === previousDailyDate) : [], [dailyFiltered, previousDailyDate]);
-  const currentFilters = tab === 'overview' ? overviewFilters : dailyFilters;
-  const setCurrentFilters = tab === 'overview' ? setOverviewFilters : setDailyFilters;
-  const currentFiltered = tab === 'overview' ? overviewFiltered : dailyFiltered;
+  const currentFilters = tab === 'overview' ? overviewFilters : tab === 'daily' ? dailyFilters : complianceFilters;
+  const setCurrentFilters = tab === 'overview' ? setOverviewFilters : tab === 'daily' ? setDailyFilters : setComplianceFilters;
+  const currentFiltered = tab === 'overview' ? overviewFiltered : tab === 'daily' ? dailyFiltered : complianceFiltered;
 
   const totalCost = overviewFiltered.reduce((sum, r) => sum + r.total_cost_num, 0);
   const totalQty = overviewFiltered.reduce((sum, r) => sum + r.quantity_num, 0);
@@ -125,6 +127,8 @@ export default function Home() {
   const previousCost = previousRows.reduce((sum, row) => sum + row.total_cost_num, 0);
   const costDelta = previousCost ? ((meetingCost - previousCost) / previousCost) * 100 : 0;
   const overdueActions = dailyActions.filter((item) => item.status !== 'Cerrada' && item.dueDate && dateTime(item.dueDate) < Date.now()).length;
+  const complianceActions = useMemo(() => complianceFilters.week === 'all' ? actions : actions.filter((item) => item.week === complianceFilters.week), [actions, complianceFilters.week]);
+  const complianceDepartments = useMemo(() => groupSum(complianceFiltered, (row) => row.depto_responsible).sort((a, b) => b.cost - a.cost).slice(0, 3).map((department) => ({ ...department, issues: groupSum(complianceFiltered.filter((row) => (row.depto_responsible || 'Sin asignar') === department.name), (row) => row.reason).sort((a, b) => b.cost - a.cost).slice(0, 3) })), [complianceFiltered]);
 
   async function saveAction(event) {
     event.preventDefault(); setSaving(true); setFormError('');
@@ -163,6 +167,7 @@ export default function Home() {
           <nav className="flex w-fit rounded-xl border border-line bg-void/55 p-1">
             <NavButton active={tab === 'overview'} onClick={() => setTab('overview')} icon={<BarChart3 size={15} />} label="Vista ejecutiva" />
             <NavButton active={tab === 'daily'} onClick={() => setTab('daily')} icon={<ClipboardCheck size={15} />} label="Análisis diario" badge={openActions || undefined} />
+            <NavButton active={tab === 'compliance'} onClick={() => setTab('compliance')} icon={<Target size={15} />} label="Cumplimiento" />
           </nav>
         </div>
       </header>
@@ -180,8 +185,9 @@ export default function Home() {
             <Filter value={currentFilters.model} options={options.model} onChange={(v) => setCurrentFilters((f) => ({ ...f, model: v }))} placeholder="Todos los modelos" />
           </div>
         </div>
-        {tab === 'overview' ? <Overview totalCost={totalCost} totalQty={totalQty} byShift={byShift} byDept={byDept} byArea={byArea} byModel={byModel} byReason={byReason} weeklyTrend={weeklyTrend} /> :
-          <DailyAnalysis dailyMode={dailyMode} setDailyMode={setDailyMode} dailyPivot={dailyPivot} byDept={dailyByDept} dailyReasons={dailyReasons} dailyDeptIssues={dailyDeptIssues} actions={dailyActions} actionsStatus={actionsStatus} openActions={openActions} closedActions={closedActions} overdueActions={overdueActions} actionCoverage={actionCoverage} showForm={showForm} openActionForm={openActionForm} closeActionForm={closeActionForm} form={form} setForm={setForm} formError={formError} saving={saving} saveAction={saveAction} saveActionRow={saveActionRow} changeStatus={changeStatus} weeks={options.week} availableDates={availableDates} selectedDailyDate={selectedDailyDate} setDailyDate={setDailyDate} previousDailyDate={previousDailyDate} meetingCost={meetingCost} meetingQty={meetingQty} costDelta={costDelta} meetingMode={meetingMode} setMeetingMode={setMeetingMode} />}
+        {tab === 'overview' ? <Overview totalCost={totalCost} totalQty={totalQty} byShift={byShift} byDept={byDept} byArea={byArea} byModel={byModel} byReason={byReason} weeklyTrend={weeklyTrend} /> : tab === 'daily' ?
+          <DailyAnalysis dailyMode={dailyMode} setDailyMode={setDailyMode} dailyPivot={dailyPivot} byDept={dailyByDept} dailyReasons={dailyReasons} dailyDeptIssues={dailyDeptIssues} actions={dailyActions} actionsStatus={actionsStatus} openActions={openActions} closedActions={closedActions} overdueActions={overdueActions} actionCoverage={actionCoverage} showForm={showForm} openActionForm={openActionForm} closeActionForm={closeActionForm} form={form} setForm={setForm} formError={formError} saving={saving} saveAction={saveAction} saveActionRow={saveActionRow} changeStatus={changeStatus} weeks={options.week} availableDates={availableDates} selectedDailyDate={selectedDailyDate} setDailyDate={setDailyDate} previousDailyDate={previousDailyDate} meetingCost={meetingCost} meetingQty={meetingQty} costDelta={costDelta} meetingMode={meetingMode} setMeetingMode={setMeetingMode} /> :
+          <ComplianceAnalysis departments={complianceDepartments} actions={complianceActions} actionsStatus={actionsStatus} saveActionRow={saveActionRow} />}
       </>}
     </main>
   );
@@ -250,6 +256,47 @@ function DailyAnalysis(props) {
     {showForm && <ActionForm form={form} setForm={setForm} departments={byDept.map((d) => d.name)} causes={[...new Set([...dailyReasons.map((r) => r.name), ...dailyDeptIssues.flatMap((d) => d.issues.map((issue) => issue.name))])]} weeks={weeks} onClose={closeActionForm} onSubmit={saveAction} error={formError} saving={saving} />}
   </section>;
 }
+
+function ComplianceAnalysis({ departments, actions, actionsStatus, saveActionRow }) {
+  const stats = departments.map((department) => {
+    const issues = department.issues.map((issue) => {
+      const linked = actions.filter((action) => action.department === department.name && action.cause === issue.name);
+      const overdue = linked.some((action) => action.dueDate && dateTime(action.dueDate) < Date.now() && !['Cerrada', 'Implementada'].includes(action.status));
+      const controlled = linked.length > 0 && linked.every((action) => ['Cerrada', 'Implementada'].includes(action.status));
+      return { ...issue, linked, state: !linked.length ? 'Sin acción' : overdue ? 'Vencida' : controlled ? 'Controlada' : 'En seguimiento' };
+    });
+    const covered = issues.filter((issue) => issue.linked.length).length;
+    return { ...department, issues, covered, coverage: issues.length ? Math.round(covered / issues.length * 100) : 0 };
+  });
+  const owners = Object.values(actions.reduce((map, action) => { const owner = action.owner || 'Sin responsable'; map[owner] = map[owner] || { name: owner, total: 0, closed: 0, overdue: 0 }; map[owner].total += 1; if (['Cerrada', 'Implementada'].includes(action.status)) map[owner].closed += 1; if (action.dueDate && dateTime(action.dueDate) < Date.now() && !['Cerrada', 'Implementada'].includes(action.status)) map[owner].overdue += 1; return map; }, {})).sort((a, b) => b.total - a.total);
+  const allIssues = stats.flatMap((department) => department.issues);
+  const noAction = allIssues.filter((issue) => issue.state === 'Sin acción').length;
+  const overdue = allIssues.filter((issue) => issue.state === 'Vencida').length;
+  const controlled = allIssues.filter((issue) => issue.state === 'Controlada').length;
+  return <section className="animate-rise">
+    <div className="mb-5"><h2 className="text-xl font-bold text-ink">Cumplimiento semanal de acciones</h2><p className="mt-1 text-sm text-mute">Quién responde a los issues críticos, qué sigue pendiente y qué acciones ya demostraron avance.</p></div>
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4"><Kpi icon={<Factory />} color="text-cyan" label="Top departamentos" value={stats.length} /><Kpi icon={<ShieldAlert />} color="text-coral" label="Issues sin acción" value={noAction} /><Kpi icon={<Clock3 />} color="text-amber" label="Issues vencidos" value={overdue} /><Kpi icon={<CheckCircle2 />} color="text-teal" label="Issues controlados" value={controlled} /></div>
+    <Panel title="Cobertura de los Top 3 departamentos" subtitle="Pasteles calculados sobre los tres issues de mayor costo de cada departamento" className="mb-5">
+      {stats.length ? <div className="grid gap-4 xl:grid-cols-3">{stats.map((department) => <ComplianceDonut key={department.name} department={department} />)}</div> : <p className="py-10 text-center text-sm text-mute">Sin datos para los filtros seleccionados.</p>}
+    </Panel>
+    <div className="mb-5 grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
+      <Panel title="Semáforo de respuesta" subtitle="Detalle semanal de los issues prioritarios"><ComplianceMatrix departments={stats} /></Panel>
+      <Panel title="Ranking de responsables" subtitle="Acciones aportadas y cierres registrados"><OwnerRanking owners={owners} /></Panel>
+    </div>
+    <Panel title="Administración de contramedidas" subtitle="Edición completa del seguimiento correspondiente a la semana seleccionada" action={<span className="text-xs text-mute">{actions.length} registros</span>}>
+      {actionsStatus === 'loading' ? <p className="py-8 text-center text-sm text-mute">Cargando seguimiento…</p> : <EditableActionTable actions={actions} saveActionRow={saveActionRow} />}
+    </Panel>
+  </section>;
+}
+
+function ComplianceDonut({ department }) {
+  const counts = department.issues.reduce((map, issue) => { map[issue.state] = (map[issue.state] || 0) + 1; return map; }, {});
+  const data = [{ name: 'Controlada', value: counts.Controlada || 0, color: '#34D399' }, { name: 'En seguimiento', value: counts['En seguimiento'] || 0, color: '#F0A73F' }, { name: 'Vencida', value: counts.Vencida || 0, color: '#F2555A' }, { name: 'Sin acción', value: counts['Sin acción'] || 0, color: '#7A8794' }].filter((item) => item.value);
+  return <div className="rounded-xl border border-line bg-void/35 p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-ink">{department.name}</p><p className="mt-1 text-[11px] text-mute">{money(department.cost)} · Top {department.issues.length} issues</p></div><span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${department.coverage === 100 ? 'border-teal/30 bg-teal/10 text-teal' : department.coverage ? 'border-amber/30 bg-amber/10 text-amber' : 'border-coral/30 bg-coral/10 text-coral'}`}>{department.coverage}%</span></div><div className="relative mx-auto mt-2 h-44"><ResponsiveContainer><PieChart><Pie data={data} dataKey="value" innerRadius={48} outerRadius={68} paddingAngle={3}>{data.map((item) => <Cell key={item.name} fill={item.color} />)}</Pie><Tooltip contentStyle={{ background: '#17222E', border: '1px solid #243241', borderRadius: 10 }} /></PieChart></ResponsiveContainer><div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><p className="text-xl font-bold text-ink">{department.covered}/{department.issues.length}</p><p className="text-[9px] uppercase text-mute">con acción</p></div></div></div><div className="grid grid-cols-2 gap-2">{data.map((item) => <div key={item.name} className="flex items-center gap-2 text-[10px] text-mute"><span className="h-2 w-2 rounded-full" style={{ background: item.color }} />{item.name}: {item.value}</div>)}</div></div>;
+}
+
+function ComplianceMatrix({ departments }) { const style = { Controlada: 'bg-teal', 'En seguimiento': 'bg-amber', Vencida: 'bg-coral', 'Sin acción': 'bg-mute' }; return <div className="space-y-2">{departments.flatMap((department) => department.issues.map((issue) => <div key={`${department.name}-${issue.name}`} className="grid gap-2 rounded-lg border border-line/70 bg-void/35 p-3 sm:grid-cols-[1fr_1.4fr_auto] sm:items-center"><div><p className="text-xs font-bold text-ink">{department.name}</p><p className="text-[10px] text-mute">{money(issue.cost)}</p></div><p className="text-xs text-ink">{issue.name}</p><span className="flex items-center gap-2 text-[10px] font-semibold text-mute"><span className={`h-2 w-2 rounded-full ${style[issue.state]}`} />{issue.state}</span></div>))}</div>; }
+function OwnerRanking({ owners }) { if (!owners.length) return <p className="py-8 text-center text-sm text-mute">Aún no hay responsables registrados.</p>; return <div className="space-y-2">{owners.slice(0, 8).map((owner, index) => <div key={owner.name} className="flex items-center gap-3 rounded-lg border border-line/70 bg-void/35 p-3"><span className="font-mono text-xs text-cyan">0{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-ink">{owner.name}</p><p className="text-[10px] text-mute">{owner.closed} cerradas · {owner.overdue} vencidas</p></div><span className="rounded-full bg-cyan/10 px-2 py-1 text-[10px] font-bold text-cyan">{owner.total} acciones</span></div>)}</div>; }
 
 function NavButton({ active, onClick, icon, label, badge }) { return <button onClick={onClick} className={`relative flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold sm:text-sm ${active ? 'bg-panel2 text-ink shadow-glow' : 'text-mute hover:text-ink'}`}>{icon}{label}{badge ? <span className="rounded-full bg-coral/15 px-1.5 text-[10px] text-coral">{badge}</span> : null}{active && <span className="tab-indicator absolute -bottom-1 left-3 right-3 h-0.5 rounded-full bg-cyan" />}</button>; }
 function MiniTab({ active, onClick, children }) { return <button onClick={onClick} className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${active ? 'bg-cyan/15 text-cyan' : 'text-mute'}`}>{children}</button>; }
